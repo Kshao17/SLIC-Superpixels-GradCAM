@@ -1,124 +1,106 @@
-# SLIC Superpixels & Grad-CAM
+# SLIC Superpixels from Scratch & Grad-CAM
 
-This project explores two important areas of computer vision:
+Individual computer vision project with two parts:
 
-1. Image segmentation using SLIC (Simple Linear Iterative Clustering) superpixels
-2. Neural network interpretability using gradient-based visualization methods
+1. **SLIC superpixels, implemented from scratch** in NumPy and compared with scikit-image.
+2. **Visual explanations for a CNN** with Grad-CAM, vanilla backpropagation and Guided Grad-CAM on a
+   pretrained ResNet-50.
 
-The project combines algorithm implementation with visual analysis to better understand both low-level image segmentation and high-level model attention.
+## Part 1: SLIC Superpixel Segmentation
 
-## Project Overview
+SLIC (Simple Linear Iterative Clustering) is k-means clustering on pixels described by CIELAB color
+and position. Each center only competes for pixels in a 2S × 2S window around it, where
+S = √(N/K) is the grid spacing for N pixels and K target superpixels. The distance combines color
+distance d_c and spatial distance d_s, balanced by the compactness m:
 
-The project contains two main components:
+<p align="center"><b>D = √( d<sub>c</sub><sup>2</sup> + (m / S)<sup>2</sup> d<sub>s</sub><sup>2</sup> )</b></p>
 
-### Part 1: SLIC Superpixel Segmentation
+My implementation (`slic.py`) includes grid initialization, windowed assignment with vectorized
+distance computation, and center updates, run for 10 iterations. It does not include
+gradient-based center initialization or connectivity enforcement.
 
-SLIC groups nearby pixels into perceptually meaningful regions by balancing:
+### Results
 
-- Color similarity
-- Spatial proximity
+Test image: 300 × 400 photo of the Brandeis campus, compactness m = 10 in both implementations.
 
-Instead of clustering across the entire image, the implementation restricts centroid searches to local neighborhoods to improve computational efficiency.
+![K = 200 comparison](comparison_K_200.png)
 
-### Part 2: Visual Attention in Deep Neural Networks
+*My implementation (left) vs. scikit-image with default settings (right), K = 200.*
 
-The project also explores several gradient-based interpretation methods:
+| K | Version | Superpixels | Pixels in disconnected fragments | Color std inside a superpixel (LAB) | Runtime |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 50 | Mine | 48 | 32.7% | 9.1 | 0.53 s |
+| 50 | scikit-image, connectivity off | 48 | 57.1% | – | – |
+| 50 | scikit-image, default | 14 | 0% | 12.9 | 0.11 s |
+| 200 | Mine | 204 | 28.2% | 6.8 | 1.48 s |
+| 200 | scikit-image, connectivity off | 204 | 44.0% | – | – |
+| 200 | scikit-image, default | 91 | 0% | 9.9 | 0.12 s |
+| 500 | Mine | 540 | 26.6% | 5.7 | 3.44 s |
+| 500 | scikit-image, connectivity off | 540 | 35.8% | – | – |
+| 500 | scikit-image, default | 291 | 0% | 8.5 | 0.10 s |
 
-- Grad-CAM
-- Vanilla Backpropagation
-- Guided Grad-CAM
+**Key findings**
 
-These methods were used to visualize which parts of an image contributed most strongly to a model's prediction.
+- **The visible difference comes from connectivity enforcement.** With it switched off,
+  scikit-image produced the same number of superpixels as my code and an equal or larger share of
+  fragmented pixels, so the fragmentation is a property of color-driven clustering on this textured
+  image, not a bug in my implementation.
+- **Connectivity enforcement is a trade-off.** It merges fragments into compact, connected regions
+  (14, 91 and 291 instead of the requested 50, 200 and 500), but each region becomes 40–50% less
+  uniform in color.
+- **Larger K follows finer structure.** Average superpixel size fell from 2,500 to 588 to 222
+  pixels, and color variation within superpixels fell with it.
+- **Speed.** My Python loop over centers was 5–34× slower than scikit-image's compiled Cython.
 
-## SLIC Implementation
+More results: `comparison_K_50.png`, `comparison_K_500.png`, and `slic_result_K_*.png`.
 
-I implemented the SLIC algorithm from scratch.
+## Part 2: Grad-CAM and Gradient-Based Visualization
 
-The algorithm represents each pixel using both color and spatial information and assigns pixels to nearby cluster centers based on a combined distance metric.
+`gradcam.py` applies three visualization methods to a pretrained ResNet-50 (torchvision), using the
+[`pytorch-grad-cam`](https://github.com/jacobgil/pytorch-grad-cam) library:
 
-To improve efficiency, cluster-center searches were restricted to local `2S × 2S` regions rather than evaluating all centroids globally.
+- **Grad-CAM:** a coarse heatmap of the regions that most influence the predicted class.
+- **Vanilla backpropagation:** pixel-level gradients of the prediction with respect to the input.
+- **Guided Grad-CAM:** guided backpropagation weighted by the Grad-CAM map, combining localization with
+  fine detail.
 
-## Superpixel Granularity
-
-Different values of K were tested to study how the number of superpixels affects segmentation quality.
-
-Experiments included:
-
-- K = 50
-- K = 200
-- K = 500
-
-Lower K values produced larger superpixels that captured broad image regions.
-
-Higher K values produced finer superpixels that better followed detailed object boundaries.
-
-## Comparison with Scikit-image
-
-The custom SLIC implementation was compared with the optimized implementation from `scikit-image`.
-
-The comparison focused on:
-
-- Boundary adherence
-- Cluster regularity
-- Stability
-- Computational performance
-
-The custom implementation successfully produced meaningful superpixels, while the library implementation produced more regular and stable regions due to additional optimization and connectivity post-processing.
-
-## Model Interpretability
-
-The second part of the project investigates how deep neural networks focus on different image regions.
-
-### Grad-CAM
-
-Grad-CAM uses gradients flowing into a convolutional layer to generate a localization heatmap that highlights regions important to the model's prediction.
-
-### Vanilla Backpropagation
-
-Vanilla backpropagation visualizes gradients with respect to the input image, showing which pixels most strongly influence the output.
-
-### Guided Grad-CAM
-
-Guided Grad-CAM combines coarse Grad-CAM localization with higher-resolution guided backpropagation information.
-
-## Layer-wise Analysis
-
-Attention maps were generated at different network layers to study how representations change with network depth.
-
-Earlier layers generally capture lower-level visual patterns, while deeper layers tend to focus on more semantically meaningful image regions.
-
-## Robustness Experiments
-
-The project also tested attention-map stability under image transformations such as rotations.
-
-This allowed the visualization methods to be evaluated not only qualitatively, but also in terms of how consistent their localization behavior remained under altered inputs.
-
-## Technologies
-
-- Python
-- NumPy
-- PyTorch
-- Scikit-image
-- Matplotlib
-- SLIC
-- Grad-CAM
-- Guided Grad-CAM
-- Computer Vision
-- Explainable AI
+The script also generates Grad-CAM maps at five depths of the network (`relu`, `layer1` to `layer4`)
+to compare how attention changes with depth, and tests robustness to a 90° rotation and to Gaussian
+input noise (σ = 0.05).
 
 ## Repository Structure
 
 ```text
-slic-superpixels-gradcam/
+SLIC-Superpixels-GradCAM/
 ├── README.md
-├── notebooks/
-│   └── slic_gradcam.ipynb
-├── src/
-│   ├── slic.py
-│   └── gradcam.py
-├── results/
-│   ├── slic_comparisons/
-│   └── gradcam_visualizations/
-├── docs/
-│   └── report.pdf
-└── .gitignore
+├── requirements.txt
+├── slic.py                 # SLIC implementation and scikit-image comparison
+├── gradcam.py              # Grad-CAM, vanilla backprop, Guided Grad-CAM, layer and robustness experiments
+├── brandeis_campus.jpg     # test image
+├── comparison_K_50.png     # my SLIC vs. scikit-image, K = 50
+├── comparison_K_200.png    # K = 200
+├── comparison_K_500.png    # K = 500
+├── slic_result_K_50.png
+├── slic_result_K_200.png
+├── slic_result_K_500.png
+└── my_slic_k50.png
+```
+
+## Running
+
+```bash
+pip install -r requirements.txt
+python slic.py      # SLIC experiments and comparison figures
+python gradcam.py   # Grad-CAM visualizations
+```
+
+## Next Steps
+
+- Add connectivity enforcement and gradient-based initialization, then compare with scikit-image again.
+- Evaluate on BSDS500 with boundary recall and undersegmentation error.
+- Sweep the compactness m to map the trade-off between boundary adherence and regularity.
+
+## References
+
+- Achanta, R., et al. (2012). [SLIC Superpixels Compared to State-of-the-Art Superpixel Methods](https://doi.org/10.1109/TPAMI.2012.120). IEEE TPAMI 34(11).
+- Selvaraju, R. R., et al. (2017). [Grad-CAM: Visual Explanations from Deep Networks via Gradient-based Localization](https://arxiv.org/abs/1610.02391). ICCV 2017.
